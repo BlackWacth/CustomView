@@ -1,1 +1,1 @@
-include ':Matrix'
+include ':Matrix', ':Camera'
