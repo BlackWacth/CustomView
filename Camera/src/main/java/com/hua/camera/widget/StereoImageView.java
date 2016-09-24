@@ -12,6 +12,8 @@ import android.view.ViewConfiguration;
 import android.view.ViewGroup;
 import android.widget.Scroller;
 
+import com.hua.camera.utils.L;
+
 /**
  * Created by hzw on 2016/9/23.
  */
@@ -67,12 +69,15 @@ public class StereoImageView extends ViewGroup{
         measureChildren(widthMeasureSpec, heightMeasureSpec);
         mWidth = getMeasuredWidth();
         mHeight = getMeasuredHeight();
-        scrollTo(0, mStartScreen * mHeight); //滑动到startScreen的位置
+//        L.i("mWidth = " + mWidth);
+//        L.i("mHeight = " + mHeight);
+//        scrollTo(0, mStartScreen * mHeight); //滑动到startScreen的位置
     }
 
     @Override
     protected void onLayout(boolean changed, int l, int t, int r, int b) {
         int childTop = 0;
+        //一条一条从上到下平铺，类似ListView
         for(int i = 0; i < getChildCount(); i++) {
             View child = getChildAt(i);
             if(child.getVisibility() != View.GONE) {
@@ -84,17 +89,17 @@ public class StereoImageView extends ViewGroup{
 
     @Override
     public boolean dispatchTouchEvent(MotionEvent ev) {
-        float x = ev.getX();
-        float y = ev.getY();
         switch (ev.getAction()) {
             case MotionEvent.ACTION_DOWN :
                 isSliding = false;
-                mDownX = x;
-                mDownY = y;
+                mDownX = ev.getX(); //获取相对父控件的x。以父控件为坐标系。
+                mDownY = ev.getY(); //获取相对父控件的y。以父控件为坐标系。
                 if(!mScroller.isFinished()) {
                     //当上一次滑动没有结束时，再次点击，强制滑动在点击位置结束
                     mScroller.setFinalY(mScroller.getCurrY());
                     mScroller.abortAnimation();
+                    //scrollTo(x, y) x < 0 : 从左向右滑动， 否则反之。
+                    // y < 0 : 从上向下滑动,否则反之。
                     scrollTo(0, getScrollY());
                     isSliding = true;
                 }
@@ -106,21 +111,30 @@ public class StereoImageView extends ViewGroup{
                 }
                 break;
         }
-
         return super.dispatchTouchEvent(ev);
     }
 
+    /**
+     * ViewGroup中特有的方法，用于事件拦截。
+     *
+     * 触摸事件传递：
+     * down事件首先会传递到onInterceptTouchEvent()方法
+     * 如果该ViewGroup的onInterceptTouchEvent()在接收到down事件处理完成之后return false，那么后续的move, up等事件将继续会先传递给该ViewGroup，之后才和down事件一样传递给最终的目标view的onTouchEvent()处理。
+     * 如果该ViewGroup的onInterceptTouchEvent()在接收到down事件处理完成之后return true，那么后续的move, up等事件将不再传递给onInterceptTouchEvent()，而是和down事件一样传递给该ViewGroup的onTouchEvent()处理，注意，目标view将接收不到任何事件。
+     * 如果最终需要处理事件的view的onTouchEvent()返回了false，那么该事件将被传递至其上一层次的view的onTouchEvent()处理。
+     * 如果最终需要处理事件的view 的onTouchEvent()返回了true，那么后续事件将可以继续传递给该view的onTouchEvent()处理。
+     * @param ev
+     * @return
+     */
     @Override
     public boolean onInterceptTouchEvent(MotionEvent ev) {
         return isSliding;
     }
 
     private boolean isCanSliding(MotionEvent ev) {
-        float moveX;
-        float moveY;
-        moveX = ev.getX();
-        moveY = ev.getY();
-        if(Math.abs(moveY - mDownY) > mTouchSlop && (Math.abs(moveX - mDownY) > Math.abs(moveX - mDownX))) {
+        float moveX = ev.getX();
+        float moveY = ev.getY();
+        if(Math.abs(moveY - mDownY) > mTouchSlop && (Math.abs(moveY - mDownY) > Math.abs(moveX - mDownX))) {
             return true;
         }
         return false;
@@ -143,6 +157,7 @@ public class StereoImageView extends ViewGroup{
 
             case MotionEvent.ACTION_MOVE :
                 if(isSliding) {
+                    //下滑为正，上滑为负
                     int realDelta = (int) (mDownY - y);
                     mDownY = y;
                     if(mScroller.isFinished()) {
@@ -293,12 +308,16 @@ public class StereoImageView extends ViewGroup{
     }
 
     private void toPreAction(float yVelocity) {
+        L.i("--- toPreAction ---");
         mState = State.ToPre;
-        addPre();
+        addPre();//增加新的页面
+        //计算松手后滑动的item个数
         int flingSpeedCount = (yVelocity - standerSpeed) > 0 ? (int) (yVelocity - standerSpeed) : 0;
         addCount = flingSpeedCount / flingSpeed + 1;
+        //mScroller开始坐标
         int startY = getScrollY() + mHeight;
-        setScaleY(startY);
+        setScrollY(startY);
+        //mScroller移动的距离
         int delta = -(startY - mStartScreen * mHeight) - (addCount - 1) * mHeight;
         int duration = (Math.abs(delta)) * 3;
         mScroller.startScroll(0, startY, 0, delta, duration);
@@ -306,6 +325,7 @@ public class StereoImageView extends ViewGroup{
     }
 
     private void toNextAction(float yVelocity) {
+        L.i("--- toNextAction ---");
         int startY;
         int delta;
         int duration;
@@ -322,16 +342,20 @@ public class StereoImageView extends ViewGroup{
     }
 
     private void recycleMove(int delta) {
+        L.i("delta = " + delta);
         delta = delta % mHeight;
         delta = (int) (delta / resistance);
         if(Math.abs(delta) > mHeight / 4) {
             return ;
         }
         scrollBy(0, delta);
-        if(getScrollY() < 5 && mStartScreen != 0) {
+        L.i("---> delta = " + delta);
+        int scrollY = getScrollY();
+        L.i("scrollY = " + scrollY);
+        if(scrollY < 5 && mStartScreen != 0) {
             addPre();
             scrollBy(0, mHeight);
-        } else if(getScrollY() > (getChildCount() - 1) * mHeight - 5) {
+        } else if(scrollY > (getChildCount() - 1) * mHeight - 5) {
             addNext();
             scrollBy(0, -mHeight);
         }
